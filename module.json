@@ -4,8 +4,8 @@
   "description": "Adds a custom HB_Armor item type with extended fields for Forbidden Lands.",
   "version": "1.0.0",
   "compatibility": {
-    "minimum": "11",
-    "verified": "12"
+    "minimum": "13",
+    "verified": "13"
   },
   "esmodules": ["overrides.js"],
   "authors": [{"name": "Hamm3r96"}],
