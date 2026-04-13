@@ -9,7 +9,7 @@ Hooks.once('init', () => {
   console.log("FBL HB Armor | Item type registered.");
 });
 
-Hooks.once('setup', () => {
+Hooks.once('ready', () => {
   const sheetClasses = CONFIG.Item.sheetClasses["armor"] ?? {};
   const FBLArmorSheet = sheetClasses["forbidden-lands.ForbiddenLandsArmorSheet"]?.cls;
 
