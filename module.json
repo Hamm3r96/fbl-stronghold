@@ -2,7 +2,7 @@
   "id": "fbl-hb-armor",
   "title": "FBL Homebrew Armor",
   "description": "Adds a custom HB_Armor item type with extended fields for Forbidden Lands.",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "compatibility": {
     "minimum": "13",
     "verified": "13"

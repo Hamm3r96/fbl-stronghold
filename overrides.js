@@ -27,6 +27,21 @@ Hooks.once('ready', () => {
   console.log("FBL HB Armor | Sheet registered.");
 });
 
+// Inject HB Armour into the Create Item dialog dropdown
+Hooks.on('renderDialog', (dialog, html, data) => {
+  const select = html.find('select[name="type"]');
+  if (!select.length) return;
+  
+  // Check this is the item creation dialog
+  if (!dialog.title?.toLowerCase().includes('item')) return;
+
+  // Check option doesn't already exist
+  if (select.find('option[value="hb_armor"]').length) return;
+
+  // Append the new option
+  select.append('<option value="hb_armor">HB Armour</option>');
+});
+
 // Relabel "Rating" to "Integrity" on the sheet
 Hooks.on('renderItemSheet', (app, html, data) => {
   if (app.item?.type !== 'hb_armor') return;
