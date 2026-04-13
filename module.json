@@ -8,5 +8,6 @@
     "verified": "12"
   },
   "esmodules": ["overrides.js"],
-  "authors": [{"name": "Hamm3r96"}]
+  "authors": [{"name": "Hamm3r96"}],
+  "download": "https://github.com/Hamm3r96/fbl-hb-armor/archive/refs/heads/main.zip"
 }
