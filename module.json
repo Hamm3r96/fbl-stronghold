@@ -1,0 +1,12 @@
+{
+  "id": "fbl-hb-armor",
+  "title": "FBL Homebrew Armour",
+  "description": "Adds a custom HB_Armor item type with extended fields for Forbidden Lands.",
+  "version": "1.0.0",
+  "compatibility": {
+    "minimum": "11",
+    "verified": "12"
+  },
+  "esmodules": ["overrides.js"],
+  "authors": [{"name": "Hamm3r96"}]
+}
