@@ -1,54 +1,38 @@
-Hooks.once('init', () => {
+Hooks.on('renderItemSheet', (app, html, data) => {
+  // Only target armor items
+  if (app.item?.type !== 'armor') return;
 
-  // V13 registers item types here
-  game.system.documentTypes.Item["hb_armor"] = {};
+  const integrity = app.item.getFlag('fbl-hb-armor', 'integrity') ?? 0;
 
-  // Register the type label
-  game.i18n.translations["TYPES.Item.hb_armor"] = "HB Armour";
+  // Build the field HTML matching FBL's existing sheet style
+  const fieldHTML = `
+    <div class="form-group">
+      <label>Integrity</label>
+      <div class="form-fields">
+        <input 
+          type="number" 
+          min="0"
+          value="${integrity}"
+          data-flag-scope="fbl-hb-armor"
+          data-flag-key="integrity"
+          class="hb-integrity-input"
+        />
+      </div>
+    </div>
+  `;
 
-  console.log("FBL HB Armor | Item type registered.");
-});
-
-Hooks.once('ready', () => {
-  const sheetClasses = CONFIG.Item.sheetClasses["armor"] ?? {};
-  const FBLArmorSheet = sheetClasses["forbidden-lands.ForbiddenLandsArmorSheet"]?.cls;
-
-  if (!FBLArmorSheet) {
-    console.warn("FBL HB Armor | Could not find FBL armor sheet class.");
-    return;
+  // Inject after the Rating field
+  const ratingGroup = html.find('input[name="system.rating"]').closest('.form-group');
+  if (ratingGroup.length) {
+    ratingGroup.after(fieldHTML);
+  } else {
+    // Fallback - inject at top of sheet body
+    html.find('.sheet-body').prepend(fieldHTML);
   }
 
-  Items.registerSheet("fbl-hb-armor", FBLArmorSheet, {
-    types: ["hb_armor"],
-    makeDefault: true,
-    label: "HB Armour Sheet"
-  });
-
-  console.log("FBL HB Armor | Sheet registered.");
-});
-
-// Inject HB Armour into the Create Item dialog dropdown
-Hooks.on('renderDialog', (dialog, html, data) => {
-  const select = html.find('select[name="type"]');
-  if (!select.length) return;
-  
-  // Check this is the item creation dialog
-  if (!dialog.title?.toLowerCase().includes('item')) return;
-
-  // Check option doesn't already exist
-  if (select.find('option[value="hb_armor"]').length) return;
-
-  // Append the new option
-  select.append('<option value="hb_armor">HB Armour</option>');
-});
-
-// Relabel "Rating" to "Integrity" on the sheet
-Hooks.on('renderItemSheet', (app, html, data) => {
-  if (app.item?.type !== 'hb_armor') return;
-
-  html.find('label, .label').each(function () {
-    if ($(this).text().trim() === 'Rating') {
-      $(this).text('Integrity');
-    }
+  // Handle save on change
+  html.find('.hb-integrity-input').on('change', async (event) => {
+    const value = parseInt(event.target.value) || 0;
+    await app.item.setFlag('fbl-hb-armor', 'integrity', value);
   });
 });
