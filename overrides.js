@@ -1,25 +1,12 @@
 Hooks.once('init', () => {
 
-  // Register the data model as a clone of the existing armor type
-  const existingModel = CONFIG.Item.dataModels["armor"];
-
-  if (!existingModel) {
-    console.warn("FBL HB Armor | Could not find base armor data model.");
-    return;
-  }
-
-  class HBArmorDataModel extends existingModel {
-    static defineSchema() {
-      return super.defineSchema();
-    }
-  }
-
-  CONFIG.Item.dataModels["hb_armor"] = HBArmorDataModel;
+  // V13 registers item types here
+  game.system.documentTypes.Item["hb_armor"] = {};
 
   // Register the type label
   game.i18n.translations["TYPES.Item.hb_armor"] = "HB Armour";
 
-  console.log("FBL HB Armor | Data model registered.");
+  console.log("FBL HB Armor | Item type registered.");
 });
 
 Hooks.once('setup', () => {
