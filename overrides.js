@@ -148,7 +148,7 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html, data) => {
 
     const rollData = {
       title: rollTitle,
-      base: {
+      gear: {
         label: game.i18n.localize('ITEM.TypeArmor'),
         name: game.i18n.localize('ITEM.TypeArmor'),
         value: totalArmorValue,
