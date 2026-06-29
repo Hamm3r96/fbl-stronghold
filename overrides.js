@@ -7,7 +7,8 @@
 //    - Base dice = sum of Armor Value (flag) across equipped armour
 //    - Skill dice = Endurance or Move (player choice)
 //    - Pushable, but no automatic bane consequences
-// 4. Rest button restores only +1 per damaged attribute
+// 4. Rest button restores only +1 per damaged attribute,
+//    and announces the rest in chat listing what was regained
 // ============================================================
 
 const MODULE_ID = 'fbl-stronghold';
@@ -200,20 +201,46 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html, data) => {
     const ATTRS = ['strength', 'agility', 'wits', 'empathy'];
     const attrs = actor.system.attribute ?? {};
     const updates = {};
+    const restored = [];
 
     for (const key of ATTRS) {
       const attr = attrs[key];
       if (!attr) continue;
       if (attr.value < attr.max) {
         updates[`system.attribute.${key}.value`] = Math.min(attr.value + 1, attr.max);
+        // Localized attribute name for the chat message (e.g. "Wits")
+        restored.push(game.i18n.localize(attr.label));
       }
     }
 
     if (Object.keys(updates).length) {
       await actor.update(updates);
-      ui.notifications.info('Rested: +1 to each damaged attribute.');
-    } else {
-      ui.notifications.info('All attributes already at full.');
     }
+
+    // -------------------------------------------------------
+    // Announce the rest in chat, listing what was actually
+    // restored (or that nothing was, if already at full)
+    // -------------------------------------------------------
+    const content = restored.length
+      ? `<p><strong>${actor.name}</strong> takes a rest and regains ${restored
+          .map((name) => `1 ${name}`)
+          .join(', ')}.</p>`
+      : `<p><strong>${actor.name}</strong> takes a rest, but is already fully rested.</p>`;
+
+    await ChatMessage.create({
+      speaker: ChatMessage.getSpeaker({ actor }),
+      content,
+    });
   });
+});
+
+// ----------------------------------------------------------
+// CHARACTER SHEET: Remove the Chargen button (players only)
+// ----------------------------------------------------------
+Hooks.on('renderForbiddenLandsCharacterSheet', (app, html, data) => {
+  // GM keeps chargen for building characters/NPCs.
+  // To remove it for everyone, delete the line below.
+  if (game.user.isGM) return;
+
+  html.find('a.char-gen').remove();
 });
