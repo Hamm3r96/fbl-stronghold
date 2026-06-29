@@ -1,0 +1,187 @@
+[
+  {
+    "uuid": "Item.okUOevuSYu4p5FXu",
+    "name": "Chainmail",
+    "armorValue": 3
+  },
+  {
+    "uuid": "Item.FE4WqoMxyfvAXiAc",
+    "name": "Closed Helmet",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.3tIIsSKghqdEzdBV",
+    "name": "Gambeson",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.SliniV7Ley6RPcCL",
+    "name": "Great Helm",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.fV1lXI4PXoKsDGI1",
+    "name": "Half-Plate",
+    "armorValue": 3
+  },
+  {
+    "uuid": "Item.0wHuuJ46hicZEBTm",
+    "name": "Hardened Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.EJmDJvhuSjb5JPjX",
+    "name": "Heavy Brigandine",
+    "armorValue": 3
+  },
+  {
+    "uuid": "Item.NrCemRnavEgvun5o",
+    "name": "Lamellar, Metal",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.mV0EEop0WgPhZzRQ",
+    "name": "Leather Armor",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Item.eeVTvBXZXVhS6Ct6",
+    "name": "Light Brigandine",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.40QL43le8SEPF0qc",
+    "name": "Mail Coif",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.yqt9UynqXB4PU59r",
+    "name": "Open Helmet",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Item.9CPfpycKY4IOTAZX",
+    "name": "Padded Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Item.PhJYtByloDxLSrPj",
+    "name": "Plate Armor",
+    "armorValue": 4
+  },
+  {
+    "uuid": "Item.5gR0FKrUBXBYCeBK",
+    "name": "Scale armor, Hardened leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.1eLcXaRx3QlINGq3",
+    "name": "Scale, Metal",
+    "armorValue": 3
+  },
+  {
+    "uuid": "Item.sov7jLxuRUuPUUdW",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Item.qIxFaOTWfjkcU777",
+    "name": "Studded Leather Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Actor.0BuQS9HQjCQEn52b.Item.W7Ue1JFy0fWbne3U",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.7n9OSEPByYzhjY39.Item.rVxmTmnmU6EbneoH",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.7IGcOwtSckLd6tSs.Item.nacBjBVEtdbPWhir",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.7IGcOwtSckLd6tSs.Item.RcdyGLVFs8iC9u1D",
+    "name": "Studded Leather Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Actor.NGkNhLBIFvMrK7FB.Item.sA7PpWUIztwBuEoL",
+    "name": "Studded Leather Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Actor.JTnslczlBrIwUM84.Item.qJPkfkIrDKdAvdQk",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.JTnslczlBrIwUM84.Item.uKwBddgESFB7QG0G",
+    "name": "Studded Leather Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Actor.XmW2jfUr6n1W3sIA.Item.SDg7JRDP0oQUAXOp",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.XmW2jfUr6n1W3sIA.Item.yynGQhVjhsUbTJva",
+    "name": "Studded Leather Cap",
+    "armorValue": 1
+  },
+  {
+    "uuid": "Actor.XmW2jfUr6n1W3sIA.Item.cGK6tHYW3gzX5zlS",
+    "name": "Natural Armour",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.XmW2jfUr6n1W3sIA.Item.4oyBCOMkT6XzhkVp",
+    "name": "Closed Helmet",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.yfGN8FrBegYpWelA.Item.cwYWF40thMBLbGcI",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.IzHjaoV6NRs2nXZK.Item.g6oxmDK2bishObmT",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.kutRNjtsncPCYFFL.Item.OUMyWtPCfEWNoERx",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.y2o1DlxFuIvJeewI.Item.bU6UuHb3mPErOLFY",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.7gvgv7kTpcz5Bdda.Item.qCinWCMA0Ymk6fIc",
+    "name": "Studded Leather",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.7gvgv7kTpcz5Bdda.Item.FYLCMjzTs3LZYqlj",
+    "name": "Closed Helmet",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.Jx55Gia6uAk2Jf61.Item.MKrQUhStOvrqCZZr",
+    "name": "Closed Helmet",
+    "armorValue": 2
+  },
+  {
+    "uuid": "Actor.Jx55Gia6uAk2Jf61.Item.c6906AWwXJ3qd9L9",
+    "name": "Studded Leather",
+    "armorValue": 2
+  }
+]
