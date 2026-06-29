@@ -9,7 +9,7 @@
 //    - Pushable, but no automatic bane consequences
 // ============================================================
 
-const MODULE_ID = 'fbl-hb-armor';
+const MODULE_ID = 'fbl-stronghold';
 
 // ----------------------------------------------------------
 // ITEM SHEET: Inject Armor Value field & relabel Rating
