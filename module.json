@@ -1,7 +1,7 @@
 {
-  "id": "fbl-hb-armor",
-  "title": "FBL Homebrew Armor",
-  "description": "Homebrew Armor System for Forbidden Lands",
+  "id": "fbl-stronghold",
+  "title": "FBL Stronghold",
+  "description": "Homebrew Module for Forbidden Lands - Stronghold",
   "version": "2.0.1",
   "compatibility": {
     "minimum": "13",
@@ -9,5 +9,5 @@
   },
   "esmodules": ["overrides.js"],
   "authors": [{"name": "Hamm3r96"}],
-  "download": "https://github.com/Hamm3r96/fbl-hb-armor/archive/refs/heads/main.zip"
+  "download": "https://github.com/Hamm3r96/fbl-stronghold/archive/refs/heads/main.zip"
 }
