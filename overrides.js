@@ -1,5 +1,5 @@
 // ============================================================
-// FBL Homebrew Armour — overrides.js
+// FBL Stronghold (Homebrew) — overrides.js
 // ============================================================
 // 1. Injects custom "Armor Value" field into armour item sheets
 // 2. Relabels "Rating" to "Integrity"
@@ -7,6 +7,7 @@
 //    - Base dice = sum of Armor Value (flag) across equipped armour
 //    - Skill dice = Endurance or Move (player choice)
 //    - Pushable, but no automatic bane consequences
+// 4. Rest button restores only +1 per damaged attribute
 // ============================================================
 
 const MODULE_ID = 'fbl-stronghold';
@@ -176,5 +177,43 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html, data) => {
     // Execute roll via public API
     // -------------------------------------------------------
     await game.fbl.roll(rollData, rollOptions);
+  });
+});
+
+// ----------------------------------------------------------
+// CHARACTER SHEET: Rest button restores only +1 per attribute
+// ----------------------------------------------------------
+Hooks.on('renderForbiddenLandsCharacterSheet', (app, html, data) => {
+  const restBtn = html.find('a.rest-up');
+  if (!restBtn.length) return;
+
+  // Strip the system's binding, then bind ours
+  restBtn.off('click').on('click', async (event) => {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+
+    const actor = app.actor;
+    if (!actor) return;
+
+    // Only the four attributes actually used on the sheet.
+    // (health/resolve exist in data with max 0 and are deliberately excluded.)
+    const ATTRS = ['strength', 'agility', 'wits', 'empathy'];
+    const attrs = actor.system.attribute ?? {};
+    const updates = {};
+
+    for (const key of ATTRS) {
+      const attr = attrs[key];
+      if (!attr) continue;
+      if (attr.value < attr.max) {
+        updates[`system.attribute.${key}.value`] = Math.min(attr.value + 1, attr.max);
+      }
+    }
+
+    if (Object.keys(updates).length) {
+      await actor.update(updates);
+      ui.notifications.info('Rested: +1 to each damaged attribute.');
+    } else {
+      ui.notifications.info('All attributes already at full.');
+    }
   });
 });
