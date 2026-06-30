@@ -2,7 +2,7 @@
   "id": "fbl-stronghold",
   "title": "FBL Stronghold",
   "description": "Homebrew Module for Forbidden Lands - Stronghold",
-  "version": "4.4.3",
+  "version": "4.5",
   "compatibility": {
     "minimum": "13",
     "verified": "13"

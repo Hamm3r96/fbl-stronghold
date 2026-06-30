@@ -259,3 +259,17 @@ Hooks.once('setup', () => {
   if (setting) setting.default = true;
   else console.warn('[fbl-stronghold] pinned-windows setting not found');
 });
+Hooks.once('setup', () => {
+  const SC = 'foundryvtt-simple-calendar-reborn';
+  const defaults = {
+    'open-on-load':              true,
+    'open-compact':              true,
+    'remember-position':         true,
+    'remember-compact-position': true,
+  };
+  for (const [shortKey, value] of Object.entries(defaults)) {
+    const setting = game.settings.settings.get(`${SC}.${shortKey}`);
+    if (setting) setting.default = value;
+    else console.warn(`[fbl-stronghold] SC setting not found: ${shortKey}`);
+  }
+});
