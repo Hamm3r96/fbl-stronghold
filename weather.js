@@ -463,24 +463,17 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html) => {
   const gearTab = html.find('.tab[data-tab="gear"]').last();
   let how = null;
 
-  // Preferred spot: the encumbrance toolbar. Locate it by finding the leaf
-  // element whose text is the "current / max" capacity (e.g. "5 / 12") and
-  // dropping the readout into its row, where the empty space is.
+  // The encumbrance counter is <div class="encumbrance"> inside the gear tab's
+  // <div class="controls"> toolbar. Drop the readout right after it so it sits
+  // in the empty space of that same row.
   if (gearTab.length) {
-    let cap = null;
-    gearTab.find('*').each(function () {
-      if (cap) return;
-      const el = $(this);
-      if (el.children().length === 0 && /^\d+\s*\/\s*\d+$/.test(el.text().trim())) cap = el;
-    });
-    if (cap) {
-      const bar = cap.parent();
-      bar.css({ display: 'flex', 'align-items': 'center', 'flex-wrap': 'wrap' });
-      bar.append(compactHTML);
-      how = 'encumbrance toolbar';
+    const enc = gearTab.find('.encumbrance').first();
+    if (enc.length) {
+      enc.after(compactHTML);
+      how = 'next to encumbrance';
     } else {
       gearTab.prepend(compactHTML); // visible fallback within the gear tab
-      how = 'top of gear tab (encumbrance row not found)';
+      how = 'top of gear tab (.encumbrance not found)';
     }
   } else {
     const header = html.find('.sheet-header');
@@ -502,7 +495,6 @@ function openHeatDialog(actor) {
       <div class="form-group"><label><input type="checkbox" name="soaked"/> Soaked wet (−2)</label></div>
       <div class="form-group"><label><input type="checkbox" name="bare"/> Bare minimum clothing (−1)</label></div>
       <div class="form-group"><label><input type="checkbox" name="fire"/> Campfire (+2)</label></div>
-      <div class="form-group"><label><input type="checkbox" name="tent"/> Tent <small style="opacity:.7;">(shelter; +2 Make Camp)</small></label></div>
     `,
     buttons: {
       show: { icon: '<i class="fas fa-eye"></i>', label: 'Show Effect', callback: (h) => reportHeat(actor, h, false) },
@@ -518,7 +510,6 @@ async function reportHeat(actor, html, doRoll) {
   const soaked = html.find('[name="soaked"]').is(':checked');
   const bare = html.find('[name="bare"]').is(':checked');
   const fire = html.find('[name="fire"]').is(':checked');
-  const tent = html.find('[name="tent"]').is(':checked'); // shelter only, 0 heat
 
   // Temp-side modifier only. Worn gear is handled by the items' own Endurance
   // modifiers on the roll itself, so it is NOT added here.
@@ -531,7 +522,6 @@ async function reportHeat(actor, html, doRoll) {
   if (soaked) reasons.push('Soaked wet (−2)');
   if (bare) reasons.push('Bare minimum clothing (−1)');
   reasons.push(fire ? 'Campfire (+2)' : 'No campfire');
-  if (tent) reasons.push('Tent (shelter)');
 
   await ChatMessage.create({
     speaker: ChatMessage.getSpeaker({ actor }),
