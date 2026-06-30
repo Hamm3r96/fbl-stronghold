@@ -296,6 +296,7 @@ async function resolveWeather() {
   const die = roll.total;
   const effective = die + (state.rainRisk || 0);
   const prev = state.lastResult;
+  const prevPrecip = state.precip; // did it actually rain/snow on the last roll?
 
   const notes = [];
   state.fog = false;
@@ -306,14 +307,9 @@ async function resolveWeather() {
   if (effective <= 3) {
     result = 'sun';
     notes.push('+1 to Lead the Way, +1 to Hiking in Darkness.');
-    if (prev === 'risk' && (state.precip === 'rain' || state.precip === 'snow')) {
-      state.fog = true;
-    }
-    // Fog also if this Sun directly follows precipitation:
-    if (prev === 'risk') {
-      state.fog = true;
-      notes.push('Fog during the first light quarter-day: −2 to Lead the Way.');
-    }
+    // Morning fog only after ACTUAL precipitation. Display is handled by the
+    // fog line in the card, so no separate note here (avoids duplication).
+    if (prevPrecip) state.fog = true;
   } else if (effective === 4) {
     result = 'clouds';
   } else if (effective === 5) {
@@ -324,7 +320,7 @@ async function resolveWeather() {
   } else { // 6+
     result = 'risk';
     state.rainRisk = (state.rainRisk || 0) + 1;
-    notes.push(`Risk for rain/snowfall — rain-risk now +${state.rainRisk}. Actual precipitation depends on terrain.`);
+    // Note is added after the precipitation check below (single line).
   }
   state.lastResult = result;
 
@@ -337,9 +333,15 @@ async function resolveWeather() {
   await setState(state);
 
   // ---- Did it actually rain/snow? (terrain-based chance, auto-rolled) ----
+  // One consolidated note for the check; the precip effects appear once via
+  // the rain/snow line in the card (no duplication).
   if (result === 'risk') {
     const p = await resolvePrecip(temp);
-    notes.push(`Precipitation check: rolled ${p.rolled} vs ${p.chance}% (${p.terrain}) → ${p.rains ? (temp > 0 ? 'RAIN' : 'SNOW') : 'stayed dry'}.`);
+    notes.push(
+      p.rains
+        ? `Risk of ${temp > 0 ? 'rain' : 'snow'} — check ${p.rolled} vs ${p.chance}% (${p.terrain}): it ${temp > 0 ? 'rains' : 'snows'}.`
+        : `Risk of rain/snow — check ${p.rolled} vs ${p.chance}% (${p.terrain}): stays dry.`
+    );
   }
 
   await postWeatherCard(die, effective, result, temp, notes);
@@ -445,29 +447,47 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html) => {
 
   const b = computeHeatBreakdown();
 
-  const lineHTML = `
-    <div class="hb-heat-line" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 8px; margin:8px 0; border:1px solid var(--color-border-dark, #555); border-radius:4px;">
-      <span><strong>Heat ${b.baseHeat}</strong> <small style="opacity:.7;">(Temp, environmental)</small></span>
-      <a class="hb-heat-check" title="Check heat / roll vs cold"><i class="fas fa-temperature-low"></i> Check</a>
-      <span class="hb-heat-effect" style="flex-basis:100%; font-size:11px; opacity:.85;">${heatEffect(b.baseHeat)}</span>
-    </div>`;
+  // Compact, single-line readout sized to sit in the toolbar next to the
+  // encumbrance counter. Full effect text lives in the hover tooltip so the
+  // element stays thin.
+  const tip = heatEffect(b.baseHeat).replace(/"/g, '&quot;');
+  const compactHTML = `
+    <span class="hb-heat-line" title="${tip}" style="display:inline-flex; align-items:center; gap:6px; margin-left:16px; font-size:13px; white-space:nowrap;">
+      <i class="fas fa-temperature-low"></i> <strong>Heat ${b.baseHeat}</strong>
+      <a class="hb-heat-check" style="text-decoration:underline; cursor:pointer;">Check</a>
+    </span>`;
 
-  // Find the Gear tab. FBL's data-tab value isn't guaranteed, so try the
-  // likely names; if none match, fall back to a guaranteed-visible spot and
-  // log the available tabs so the exact selector can be pinned.
-  const TAB_CANDIDATES = ['gear', 'inventory', 'equipment', 'items'];
-  let target = null;
-  for (const name of TAB_CANDIDATES) {
-    const t = html.find(`.tab[data-tab="${name}"]`);
-    if (t.length) { target = t; break; }
-  }
-  if (target) {
-    target.append(lineHTML);
+  // Remove any prior copy so re-renders don't stack multiple readouts.
+  html.find('.hb-heat-line').remove();
+
+  const gearTab = html.find('.tab[data-tab="gear"]').last();
+  let how = null;
+
+  // Preferred spot: the encumbrance toolbar. Locate it by finding the leaf
+  // element whose text is the "current / max" capacity (e.g. "5 / 12") and
+  // dropping the readout into its row, where the empty space is.
+  if (gearTab.length) {
+    let cap = null;
+    gearTab.find('*').each(function () {
+      if (cap) return;
+      const el = $(this);
+      if (el.children().length === 0 && /^\d+\s*\/\s*\d+$/.test(el.text().trim())) cap = el;
+    });
+    if (cap) {
+      const bar = cap.parent();
+      bar.css({ display: 'flex', 'align-items': 'center', 'flex-wrap': 'wrap' });
+      bar.append(compactHTML);
+      how = 'encumbrance toolbar';
+    } else {
+      gearTab.prepend(compactHTML); // visible fallback within the gear tab
+      how = 'top of gear tab (encumbrance row not found)';
+    }
   } else {
-    const tabs = html.find('[data-tab]').map((i, e) => e.dataset.tab).get();
-    console.warn(`${MODULE_ID} | Gear tab not found. Available data-tab values:`, tabs);
-    (html.find('.sheet-body').first().length ? html.find('.sheet-body').first() : html).append(lineHTML);
+    const header = html.find('.sheet-header');
+    (header.length ? header : html.find('.window-content').first()).prepend(compactHTML);
+    how = 'fallback:header';
   }
+  console.log(`${MODULE_ID} | Heat readout placed: ${how}`);
 
   html.find('.hb-heat-check').off('click').on('click', () => openHeatDialog(actor));
 });
