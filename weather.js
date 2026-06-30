@@ -43,6 +43,7 @@ const SETTINGS = {
   TERRAIN: 'terrain',
   UNIT: 'tempUnit',
   AUTO: 'autoPrompt',
+  HEAT_ITEMS: 'heatItems',
 };
 
 const SEASON_TEMP = { summer: 2, springfall: 1, winter: 0 };
@@ -133,6 +134,13 @@ Hooks.once('init', () => {
     name: 'Weather: Prompt to roll on a new day',
     hint: 'If off, roll manually with the macro: game.fblStronghold.rollWeather()',
     scope: 'world', config: true, type: Boolean, default: true,
+  });
+
+  game.settings.register(MODULE_ID, SETTINGS.HEAT_ITEMS, {
+    name: 'Heat: Item list',
+    hint: 'Comma-separated list of item names that grant heat (½ their vs-cold bonus). Use "Name:value"; the value defaults to 1 if omitted. Matched by exact name (case-insensitive). Example: Great Fur:1, Winter Cloak:1, Sleeping Fur:1',
+    scope: 'world', config: true, type: String,
+    default: 'Great Fur:1, Winter Cloak:1, Sleeping Fur:1',
   });
 });
 
@@ -417,38 +425,24 @@ async function postWeatherCard(die, effective, result, temp, notes) {
 }
 
 // ----------------------------------------------------------
-// ITEM SHEET: Heat contribution (half the item's vs-cold bonus)
-// ----------------------------------------------------------
-// Per RAW, item bonuses vs cold convert to HALF that amount of bonus heat
-// (e.g. a Great Fur giving +2 Endurance vs cold contributes +1 heat). This
-// value feeds the heat STATUS only; the item's full cold bonus still rides on
-// the Endurance roll via the system's own modifier.
-Hooks.on('renderItemSheet', (app, html) => {
-  const t = app.item?.type;
-  if (t !== 'gear' && t !== 'armor') return;
-
-  const heat = app.item.getFlag(MODULE_ID, 'heat') ?? 0;
-  const fieldHTML = `
-    <div class="form-group">
-      <label>Heat (½ cold bonus)</label>
-      <div class="form-fields">
-        <input type="number" value="${heat}" class="hb-heat-input" title="Half the item's bonus vs cold. Great Fur (+2 vs cold) → 1."/>
-      </div>
-    </div>`;
-
-  const body = html.find('.sheet-body');
-  if (body.length) body.prepend(fieldHTML);
-  else html.append(fieldHTML);
-
-  html.find('.hb-heat-input').off('change').on('change', async (ev) => {
-    await app.item.setFlag(MODULE_ID, 'heat', parseInt(ev.target.value) || 0);
-  });
-});
-
-// ----------------------------------------------------------
 // Heat breakdown (shared by the sheet line and the report)
 // ----------------------------------------------------------
 function sign(n) { return n >= 0 ? `+${n}` : `${n}`; }
+
+// Parse the heat-item list setting into { lowercasedName: value }.
+// Format: "Great Fur:1, Winter Cloak:1, Sleeping Fur". Value defaults to 1.
+function getHeatItemMap() {
+  const raw = game.settings.get(MODULE_ID, SETTINGS.HEAT_ITEMS) || '';
+  const map = {};
+  for (const part of raw.split(',')) {
+    if (!part.trim()) continue;
+    const [name, val] = part.split(':');
+    const key = (name || '').trim().toLowerCase();
+    if (!key) continue;
+    map[key] = (val === undefined || val.trim() === '') ? 1 : (parseInt(val.trim()) || 0);
+  }
+  return map;
+}
 
 function computeHeatBreakdown(actor) {
   const state = getState();
@@ -461,16 +455,18 @@ function computeHeatBreakdown(actor) {
   const mountainMod = TERRAIN_TEMP[terrainKey] ?? 0;
   const weatherMod = temp - seasonMod - mountainMod; // clouds-on-sun, etc.
 
-  // Item heat = sum of each item's heat flag (half its vs-cold bonus). This is
-  // a STATUS contribution; it does NOT modify the Endurance roll.
+  // Item heat: match EQUIPPED items against the configured name list and sum
+  // their values (½ the vs-cold bonus). STATUS only; not a roll modifier.
+  const heatMap = getHeatItemMap();
   let gearHeat = 0;
   const gearItems = [];
   if (actor) {
     for (const it of actor.items) {
-      const h = it.getFlag(MODULE_ID, 'heat');
-      if (!h) continue;
-      gearHeat += h;
-      gearItems.push({ name: it.name, h });
+      if (it.state !== 'equipped') continue;
+      const v = heatMap[(it.name || '').trim().toLowerCase()];
+      if (!v) continue;
+      gearHeat += v;
+      gearItems.push({ name: it.name, h: v });
     }
   }
 
@@ -537,6 +533,7 @@ function openHeatDialog(actor) {
       <p style="font-size:11px; opacity:.7; margin:-4px 0 6px;">Heat sets your status only. The Endurance roll is unmodified by heat — your gear's full cold bonus already applies to it.</p>
       <div class="form-group"><label><input type="checkbox" name="soaked"/> Soaked wet (−2)</label></div>
       <div class="form-group"><label><input type="checkbox" name="bare"/> Bare minimum clothing (−1)</label></div>
+      <div class="form-group"><label><input type="checkbox" name="noblanket"/> No blanket (−1)</label></div>
       <div class="form-group"><label><input type="checkbox" name="fire"/> Campfire (+2)</label></div>
     `,
     buttons: {
@@ -552,11 +549,12 @@ async function reportHeat(actor, html, doRoll) {
 
   const soaked = html.find('[name="soaked"]').is(':checked');
   const bare = html.find('[name="bare"]').is(':checked');
+  const noblanket = html.find('[name="noblanket"]').is(':checked');
   const fire = html.find('[name="fire"]').is(':checked');
 
   // Final heat = environmental Temp + item heat + clothing/sleeping conditions.
   // This is a STATUS value (which effect row applies); it does NOT modify the roll.
-  const finalHeat = b.baseHeat + (soaked ? -2 : 0) + (bare ? -1 : 0) + (fire ? 2 : 0);
+  const finalHeat = b.baseHeat + (soaked ? -2 : 0) + (bare ? -1 : 0) + (noblanket ? -1 : 0) + (fire ? 2 : 0);
 
   // ---- Reasons behind the status ----
   const reasons = [`${b.seasonLabel} (${sign(b.seasonMod)})`];
@@ -565,6 +563,7 @@ async function reportHeat(actor, html, doRoll) {
   for (const gi of b.gearItems) reasons.push(`${gi.name} (${sign(gi.h)})`);
   if (soaked) reasons.push('Soaked wet (−2)');
   if (bare) reasons.push('Bare minimum clothing (−1)');
+  if (noblanket) reasons.push('No blanket (−1)');
   reasons.push(fire ? 'Campfire (+2)' : 'No campfire');
 
   await ChatMessage.create({
