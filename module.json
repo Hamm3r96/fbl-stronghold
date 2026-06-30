@@ -7,6 +7,9 @@
     "minimum": "13",
     "verified": "13"
   },
+  "relationships": {
+  "requires": [{ "id": "window-controls-next", "type": "module" }]
+}
   "esmodules": ["overrides.js", "weather.js"],
   "authors": [{"name": "Hamm3r96"}],
   "download": "https://github.com/Hamm3r96/fbl-stronghold/archive/refs/heads/main.zip"
