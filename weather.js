@@ -39,13 +39,48 @@ const MODULE_ID = 'fbl-stronghold';
 const SETTINGS = {
   STATE: 'weatherState',
   SEASON: 'season',
+  SEASON_AUTO: 'seasonAuto',
   TERRAIN: 'terrain',
   UNIT: 'tempUnit',
   AUTO: 'autoPrompt',
 };
 
 const SEASON_TEMP = { summer: 2, springfall: 1, winter: 0 };
-const TERRAIN_RAIN_DEFAULT = { normal: 'ask', mountain: 'yes', coast: 'yes', desert: 'no' };
+const SEASON_LABEL = { summer: 'Summer', springfall: 'Spring/Fall', winter: 'Winter' };
+
+// Chance (%) that a "Risk of rain/snow" result becomes ACTUAL precipitation,
+// by hex/terrain type. Grounded in real-world patterns: orographic lift makes
+// mountains very wet, maritime air keeps coasts wet, standing water and
+// wetlands stay humid, open plains are middling, deserts almost never.
+const TERRAIN_CHANCE = {
+  mountains: 90,   // orographic lift forces moist air up → frequent precip
+  coast: 85,       // maritime air, onshore moisture
+  marshlands: 80,  // saturated ground, high local humidity
+  quagmire: 80,
+  lakes: 75,       // large water body, lake-effect moisture
+  rivers: 75,
+  darkforest: 70,  // dense canopy, damp microclimate
+  forest: 60,
+  hills: 55,       // mild orographic effect
+  plains: 45,      // open, average exposure
+  ruins: 45,       // treat as the surrounding open ground
+  desert: 5,       // arid; rain is rare even under "risk"
+};
+const TERRAIN_TEMP = { mountains: -1 }; // RAW: Mountains −1 Temp (others 0)
+const TERRAIN_LABEL = {
+  mountains: 'Mountains (90%, −1 temp)',
+  coast: 'Coast / Sea (85%)',
+  marshlands: 'Marshlands (80%)',
+  quagmire: 'Quagmire (80%)',
+  lakes: 'Lakes (75%)',
+  rivers: 'Rivers (75%)',
+  darkforest: 'Dark Forest (70%)',
+  forest: 'Forest (60%)',
+  hills: 'Hills (55%)',
+  plains: 'Plains (45%)',
+  ruins: 'Ruins (45%)',
+  desert: 'Desert (5%)',
+};
 
 const DEFAULT_STATE = {
   rainRisk: 0,        // accumulated +N to the weather die (from 6+ results)
@@ -53,6 +88,7 @@ const DEFAULT_STATE = {
   precip: null,       // 'rain' | 'snow' | null (today's actual precipitation)
   fog: false,
   temp: 0,
+  terrain: 'plains',  // current hex; chosen by the GM at each weather roll
   windActive: false,  // Strong Winds → a quarter-day re-roll is pending
   lastDayKey: null,
   lastQuarter: null,
@@ -67,18 +103,24 @@ Hooks.once('init', () => {
     default: foundry.utils.deepClone(DEFAULT_STATE),
   });
 
+  game.settings.register(MODULE_ID, SETTINGS.SEASON_AUTO, {
+    name: 'Weather: Auto-detect season from calendar',
+    hint: 'Reads the current month/season name from Simple Calendar (e.g. Summerrise → Summer). Falls back to the manual season below if no calendar info is found.',
+    scope: 'world', config: true, type: Boolean, default: true,
+  });
+
   game.settings.register(MODULE_ID, SETTINGS.SEASON, {
-    name: 'Weather: Current Season',
-    hint: 'Sets the base Temp modifier (Summer +2, Spring/Fall +1, Winter ±0).',
+    name: 'Weather: Season (manual fallback)',
+    hint: 'Used only when auto-detect is off or the calendar exposes no season/month name.',
     scope: 'world', config: true, type: String, default: 'springfall',
     choices: { summer: 'Summer (+2)', springfall: 'Spring / Fall (+1)', winter: 'Winter (±0)' },
   });
 
   game.settings.register(MODULE_ID, SETTINGS.TERRAIN, {
-    name: 'Weather: Default Terrain',
-    hint: 'Mountains apply −1 Temp and pre-fill the rain prompt on a Risk of rain/snow result.',
-    scope: 'world', config: true, type: String, default: 'normal',
-    choices: { normal: 'Normal (ask on rain)', mountain: 'Mountain (−1 temp, rain likely)', coast: 'Coast (rain likely)', desert: 'Desert (no rain)' },
+    name: 'Weather: Default terrain (hex type)',
+    hint: 'The hex pre-selected in the weather-roll prompt. The GM confirms/changes it each roll.',
+    scope: 'world', config: true, type: String, default: 'plains',
+    choices: TERRAIN_LABEL,
   });
 
   game.settings.register(MODULE_ID, SETTINGS.UNIT, {
@@ -134,6 +176,41 @@ function getSCDate() {
   }
 }
 
+// Full SC date object (includes monthName + currentSeason when available).
+function getSCDateFull() {
+  if (typeof SimpleCalendar === 'undefined' || !SimpleCalendar.api) return null;
+  try {
+    return SimpleCalendar.api.timestampToDate(SimpleCalendar.api.timestamp());
+  } catch (e) {
+    return null;
+  }
+}
+
+// Detect the season key by keyword-matching the calendar's season or month
+// name. e.g. "Summerrise"/"Summerwane" → summer; "Springwane" → springfall.
+function detectSeason() {
+  const d = getSCDateFull();
+  if (!d) return null;
+  const candidates = [d.currentSeason?.name, d.display?.monthName, d.monthName];
+  for (const c of candidates) {
+    if (!c) continue;
+    const n = String(c).toLowerCase();
+    if (n.includes('summer')) return 'summer';
+    if (n.includes('winter')) return 'winter';
+    if (n.includes('spring') || n.includes('fall') || n.includes('autumn')) return 'springfall';
+  }
+  return null;
+}
+
+// Auto-detected season if enabled & available, else the manual fallback.
+function currentSeasonKey() {
+  if (game.settings.get(MODULE_ID, SETTINGS.SEASON_AUTO)) {
+    const s = detectSeason();
+    if (s) return s;
+  }
+  return game.settings.get(MODULE_ID, SETTINGS.SEASON);
+}
+
 // ----------------------------------------------------------
 // Date-change → prompt (primary GM only)
 // ----------------------------------------------------------
@@ -174,20 +251,37 @@ async function promptWeatherRoll(reason = 'Roll weather', now = getSCDate()) {
     if (now) { state.lastDayKey = now.dayKey; state.lastQuarter = now.quarter; }
     await setState(state);
 
-    const proceed = await new Promise((resolve) => {
+    // Terrain dropdown, pre-selected to last hex (or the default setting).
+    const curTerrain = state.terrain || game.settings.get(MODULE_ID, SETTINGS.TERRAIN) || 'plains';
+    const terrainOptions = Object.entries(TERRAIN_LABEL)
+      .map(([k, label]) => `<option value="${k}" ${k === curTerrain ? 'selected' : ''}>${label}</option>`)
+      .join('');
+
+    const chosenTerrain = await new Promise((resolve) => {
       new Dialog({
         title: 'Reforged Weather',
-        content: `<p>${reason}.</p><p>Roll for the weather? <em>(1d6 + ${state.rainRisk} accumulated rain-risk)</em></p>`,
+        content: `
+          <p>${reason}.</p>
+          <p>Roll for the weather? <em>(1d6 + ${state.rainRisk} accumulated rain-risk)</em></p>
+          <div class="form-group">
+            <label>Current terrain (hex)</label>
+            <div class="form-fields"><select name="terrain">${terrainOptions}</select></div>
+          </div>`,
         buttons: {
-          roll: { icon: '<i class="fas fa-dice-d6"></i>', label: 'Roll Weather', callback: () => resolve(true) },
-          skip: { icon: '<i class="fas fa-forward"></i>', label: 'Skip', callback: () => resolve(false) },
+          roll: { icon: '<i class="fas fa-dice-d6"></i>', label: 'Roll Weather', callback: (h) => resolve(h.find('[name="terrain"]').val()) },
+          skip: { icon: '<i class="fas fa-forward"></i>', label: 'Skip', callback: () => resolve(null) },
         },
         default: 'roll',
-        close: () => resolve(false),
+        close: () => resolve(null),
       }).render(true);
     });
 
-    if (proceed) await resolveWeather();
+    if (chosenTerrain) {
+      const s2 = getState();
+      s2.terrain = chosenTerrain;
+      await setState(s2);
+      await resolveWeather();
+    }
   } finally {
     _weatherBusy = false;
   }
@@ -235,42 +329,39 @@ async function resolveWeather() {
   state.lastResult = result;
 
   // ---- Temp ----
-  let temp = SEASON_TEMP[game.settings.get(MODULE_ID, SETTINGS.SEASON)] ?? 0;
-  if (game.settings.get(MODULE_ID, SETTINGS.TERRAIN) === 'mountain') temp -= 1;
+  let temp = SEASON_TEMP[currentSeasonKey()] ?? 0;
+  temp += TERRAIN_TEMP[state.terrain] ?? 0;
   if (result === 'clouds' && prev === 'sun') { temp += 1; notes.push('Clouds following Sun: +1 Temp.'); }
   state.temp = temp;
 
   await setState(state);
 
-  // ---- Did it actually rain/snow? (GM call, terrain-driven) ----
-  if (result === 'risk') await resolvePrecip(temp);
+  // ---- Did it actually rain/snow? (terrain-based chance, auto-rolled) ----
+  if (result === 'risk') {
+    const p = await resolvePrecip(temp);
+    notes.push(`Precipitation check: rolled ${p.rolled} vs ${p.chance}% (${p.terrain}) → ${p.rains ? (temp > 0 ? 'RAIN' : 'SNOW') : 'stayed dry'}.`);
+  }
 
   await postWeatherCard(die, effective, result, temp, notes);
 }
 
 async function resolvePrecip(temp) {
-  const terrain = game.settings.get(MODULE_ID, SETTINGS.TERRAIN);
-  const def = TERRAIN_RAIN_DEFAULT[terrain] ?? 'ask';
-
-  const rains = await new Promise((resolve) => {
-    new Dialog({
-      title: 'Risk of Rain / Snow',
-      content: `<p>Terrain: <strong>${terrain}</strong>. Does it actually rain/snow now?</p>`,
-      buttons: {
-        yes: { icon: '<i class="fas fa-cloud-rain"></i>', label: 'Yes', callback: () => resolve(true) },
-        no: { icon: '<i class="fas fa-sun"></i>', label: 'No', callback: () => resolve(false) },
-      },
-      default: def === 'no' ? 'no' : 'yes',
-      close: () => resolve(false),
-    }).render(true);
-  });
-
-  if (!rains) return;
+  const state0 = getState();
+  const terrain = state0.terrain || 'plains';
+  const chance = TERRAIN_CHANCE[terrain] ?? 45;
+  const roll = await new Roll('1d100').evaluate();
+  const rains = roll.total <= chance;
 
   const state = getState();
-  state.precip = temp > 0 ? 'rain' : 'snow';
-  state.rainRisk = 0; // INTERPRETATION: rainRisk reset — pressure releases once it precipitates.
+  if (rains) {
+    // RAW keys rain vs snow on HEAT; at the environmental level we use Temp sign.
+    state.precip = temp > 0 ? 'rain' : 'snow';
+    state.rainRisk = 0; // INTERPRETATION: rainRisk reset — pressure releases once it precipitates.
+  }
+  // If it stays dry, rainRisk carries forward (+1 already applied), so the
+  // next roll is harder to avoid — this is the stacking the rules describe.
   await setState(state);
+  return { terrain, chance, rolled: roll.total, rains };
 }
 
 // ----------------------------------------------------------
@@ -331,17 +422,11 @@ Hooks.on('renderItemSheet', (app, html) => {
   if (t !== 'gear' && t !== 'armor') return;
 
   const heat = app.item.getFlag(MODULE_ID, 'heat') ?? 0;
-  const cat = app.item.getFlag(MODULE_ID, 'heatCat') ?? 'gear';
-  const sel = (v) => (cat === v ? 'selected' : '');
   const fieldHTML = `
     <div class="form-group">
       <label>Heat Modifier</label>
       <div class="form-fields">
-        <input type="number" value="${heat}" class="hb-heat-input" style="flex:0 0 60px;"/>
-        <select class="hb-heatcat-input" title="Clothing: only the single best worn item counts (you can't wear several at once). Gear: stacks — fur, blanket, etc.">
-          <option value="gear" ${sel('gear')}>Gear (stacks)</option>
-          <option value="clothing" ${sel('clothing')}>Clothing (best only)</option>
-        </select>
+        <input type="number" value="${heat}" class="hb-heat-input"/>
       </div>
     </div>`;
 
@@ -352,93 +437,127 @@ Hooks.on('renderItemSheet', (app, html) => {
   html.find('.hb-heat-input').off('change').on('change', async (ev) => {
     await app.item.setFlag(MODULE_ID, 'heat', parseInt(ev.target.value) || 0);
   });
-  html.find('.hb-heatcat-input').off('change').on('change', async (ev) => {
-    await app.item.setFlag(MODULE_ID, 'heatCat', ev.target.value);
-  });
 });
 
 // ----------------------------------------------------------
-// CHARACTER SHEET: Heat line + Check button
+// Heat breakdown (shared by the sheet line and the report)
+// ----------------------------------------------------------
+function sign(n) { return n >= 0 ? `+${n}` : `${n}`; }
+
+function computeHeatBreakdown(actor) {
+  const state = getState();
+  const temp = state.temp ?? 0;
+
+  const seasonKey = currentSeasonKey();
+  const seasonMod = SEASON_TEMP[seasonKey] ?? 0;
+  const seasonLabel = SEASON_LABEL[seasonKey] ?? seasonKey;
+  const terrainKey = state.terrain || 'plains';
+  const mountainMod = TERRAIN_TEMP[terrainKey] ?? 0;
+  const weatherMod = temp - seasonMod - mountainMod; // clouds-on-sun, etc.
+
+  // Plain sum of every heat-tagged item (stacking allowed, per design).
+  let gearHeat = 0;
+  const gearItems = [];
+  for (const it of actor.items) {
+    const h = it.getFlag(MODULE_ID, 'heat');
+    if (!h) continue;
+    gearHeat += h;
+    gearItems.push({ name: it.name, h });
+  }
+
+  return {
+    baseHeat: temp + gearHeat,
+    temp, gearHeat, gearItems,
+    seasonLabel, seasonMod, mountainMod, weatherMod, terrainKey,
+  };
+}
+
+// ----------------------------------------------------------
+// CHARACTER SHEET: Heat line on the GEAR tab + Check button
 // ----------------------------------------------------------
 Hooks.on('renderForbiddenLandsCharacterSheet', (app, html) => {
   const actor = app.actor;
   if (!actor) return;
 
-  const state = getState();
-  const temp = state.temp ?? 0;
-
-  // Clothing = only the single best garment counts (can't wear several at once).
-  // Gear (fur, blanket, etc.) stacks. Clothing + gear stack with each other.
-  let gearHeat = 0;
-  let clothingHeat = 0;
-  let hasClothing = false;
-  for (const it of actor.items) {
-    const h = it.getFlag(MODULE_ID, 'heat');
-    if (!h) continue;
-    // INTERPRETATION: gear filter — uncomment to ignore stored items:
-    // if (it.state === 'stored' || it.state === 'backpack') continue;
-    const cat = it.getFlag(MODULE_ID, 'heatCat') ?? 'gear';
-    if (cat === 'clothing') {
-      clothingHeat = hasClothing ? Math.max(clothingHeat, h) : h;
-      hasClothing = true;
-    } else {
-      gearHeat += h;
-    }
-  }
-  const baseHeat = temp + clothingHeat + gearHeat;
+  const b = computeHeatBreakdown(actor);
 
   const lineHTML = `
-    <div class="hb-heat-line" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:4px 8px; margin:4px 0; border:1px solid var(--color-border-dark, #555); border-radius:4px;">
-      <span><strong>Heat ${baseHeat}</strong> <small style="opacity:.7;">(Temp ${temp} + clothing ${clothingHeat} + gear ${gearHeat})</small></span>
+    <div class="hb-heat-line" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 8px; margin:8px 0; border:1px solid var(--color-border-dark, #555); border-radius:4px;">
+      <span><strong>Heat ${b.baseHeat}</strong> <small style="opacity:.7;">(Temp ${b.temp} + gear ${sign(b.gearHeat)})</small></span>
       <a class="hb-heat-check" title="Check heat / roll vs cold"><i class="fas fa-temperature-low"></i> Check</a>
-      <span class="hb-heat-effect" style="flex-basis:100%; font-size:11px; opacity:.85;">${heatEffect(baseHeat)}</span>
+      <span class="hb-heat-effect" style="flex-basis:100%; font-size:11px; opacity:.85;">${heatEffect(b.baseHeat)}</span>
     </div>`;
 
-  const header = html.find('.sheet-header');
-  if (header.length) header.append(lineHTML);
-  else html.find('.window-content').prepend(lineHTML);
+  // Place at the BOTTOM of the Gear tab (under the "dropped" section).
+  const gearTab = html.find('.tab[data-tab="gear"]');
+  if (gearTab.length) gearTab.append(lineHTML);
+  else html.find('.tab').last().append(lineHTML); // fallback if tab name differs
 
-  html.find('.hb-heat-check').off('click').on('click', () => openHeatDialog(actor, baseHeat));
+  html.find('.hb-heat-check').off('click').on('click', () => openHeatDialog(actor));
 });
 
-function openHeatDialog(actor, baseHeat) {
+function openHeatDialog(actor) {
+  const b = computeHeatBreakdown(actor);
   new Dialog({
     title: 'Heat Check',
     content: `
-      <p>Base heat (Temp + gear): <strong>${baseHeat}</strong></p>
+      <p>Base heat (Temp + gear): <strong>${b.baseHeat}</strong></p>
       <div class="form-group"><label><input type="checkbox" name="soaked"/> Soaked wet (−2)</label></div>
+      <div class="form-group"><label><input type="checkbox" name="bare"/> Bare minimum clothing (−1)</label></div>
       <div class="form-group"><label><input type="checkbox" name="fire"/> Campfire (+2)</label></div>
-      <div class="form-group"><label><input type="checkbox" name="guard"/> Someone standing guard <small style="opacity:.7;">(fire won’t go out)</small></label></div>
+      <div class="form-group"><label><input type="checkbox" name="tent"/> Tent <small style="opacity:.7;">(shelter; +2 Make Camp)</small></label></div>
     `,
     buttons: {
-      show: { icon: '<i class="fas fa-eye"></i>', label: 'Show Effect', callback: (h) => reportHeat(actor, baseHeat, h, false) },
-      roll: { icon: '<i class="fas fa-dice"></i>', label: 'Roll Endurance', callback: (h) => reportHeat(actor, baseHeat, h, true) },
+      show: { icon: '<i class="fas fa-eye"></i>', label: 'Show Effect', callback: (h) => reportHeat(actor, h, false) },
+      roll: { icon: '<i class="fas fa-dice"></i>', label: 'Roll Endurance', callback: (h) => reportHeat(actor, h, true) },
     },
     default: 'show',
   }).render(true);
 }
 
-async function reportHeat(actor, baseHeat, html, doRoll) {
-  const soaked = html.find('[name="soaked"]').is(':checked') ? -2 : 0;
-  const fire = html.find('[name="fire"]').is(':checked') ? 2 : 0;
-  const finalHeat = baseHeat + soaked + fire;
+async function reportHeat(actor, html, doRoll) {
+  const b = computeHeatBreakdown(actor);
+
+  const soaked = html.find('[name="soaked"]').is(':checked');
+  const bare = html.find('[name="bare"]').is(':checked');
+  const fire = html.find('[name="fire"]').is(':checked');
+  const tent = html.find('[name="tent"]').is(':checked'); // shelter only, 0 heat
+
+  const finalHeat = b.baseHeat + (soaked ? -2 : 0) + (bare ? -1 : 0) + (fire ? 2 : 0);
+
+  // ---- Build the human-readable reasons list ----
+  const reasons = [`${b.seasonLabel} (${sign(b.seasonMod)})`];
+  if (b.mountainMod) reasons.push(`Mountains (${sign(b.mountainMod)})`);
+  if (b.weatherMod) reasons.push(`Weather (${sign(b.weatherMod)})`);
+  for (const gi of b.gearItems) reasons.push(`${gi.name} (${sign(gi.h)})`);
+  if (soaked) reasons.push('Soaked wet (−2)');
+  if (bare) reasons.push('Bare minimum clothing (−1)');
+  reasons.push(fire ? 'Campfire (+2)' : 'No campfire');
+  if (tent) reasons.push('Tent (shelter)');
 
   await ChatMessage.create({
     speaker: ChatMessage.getSpeaker({ actor }),
     content: `<div style="border:1px solid var(--color-border-dark,#555); border-radius:6px; padding:8px;">
         <h3 style="margin:0 0 4px;">Heat ${finalHeat}</h3>
-        <p style="margin:0;">${heatEffect(finalHeat)}</p>
+        <p style="margin:0 0 6px;">${heatEffect(finalHeat)}</p>
+        <p style="margin:0; font-size:11px; opacity:.8;"><strong>Why:</strong> ${reasons.join(', ')}.</p>
       </div>`,
   });
 
   if (doRoll) {
     const end = actor.skills?.endurance;
+    const str = actor.system?.attribute?.strength;
     if (end && game.fbl?.roll) {
-      // skill slot only — avoids the FBL push handler attribute-slot bug.
-      await game.fbl.roll(
-        { title: 'Endurance vs Cold', skill: { label: end.label, name: 'endurance', value: end.value ?? 0 } },
-        { maxPush: '1' }
-      );
+      // Standard Endurance roll: Strength (attribute) + Endurance (skill),
+      // with Heat folded into the skill dice as a modifier (like a +N).
+      // Real 'strength' name is used, so the phantom-attribute push bug
+      // (which came from fake attribute names) should not trigger.
+      const rollData = {
+        title: 'Endurance vs Cold',
+        attribute: { label: str?.label ?? 'Strength', name: 'strength', value: str?.value ?? 0 },
+        skill: { label: end.label, name: 'endurance', value: Math.max(0, (end.value ?? 0) + finalHeat) },
+      };
+      await game.fbl.roll(rollData, { maxPush: '1' });
     } else {
       ui.notifications?.warn('Could not find the Endurance skill or game.fbl.roll.');
     }
