@@ -2,13 +2,10 @@
   "id": "fbl-stronghold",
   "title": "FBL Stronghold",
   "description": "Homebrew Module for Forbidden Lands - Stronghold",
-  "version": "4.4",
+  "version": "4.4.1",
   "compatibility": {
     "minimum": "13",
     "verified": "13"
-  },
-  "relationships": {
-    "requires": [{ "id": "window-controls-next", "type": "module" }]
   },
   "esmodules": ["overrides.js", "weather.js"],
   "authors": [{ "name": "Hamm3r96" }],

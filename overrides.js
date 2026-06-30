@@ -253,7 +253,7 @@ Hooks.once('init', () => {
   const setting = game.settings.settings.get('forbidden-lands.collapseSheetHeaderButtons');
   if (setting) setting.default = true;
 });
-Hooks.once('init', () => {
+Hooks.once('setup', () => {
   const key = 'window-controls-next.rememberPinnedWindows'; // ← replace with the real key from the filter
   const setting = game.settings.settings.get(key);
   if (setting) setting.default = true;
