@@ -54,32 +54,31 @@ const SEASON_LABEL = { summer: 'Summer', springfall: 'Spring/Fall', winter: 'Win
 // mountains very wet, maritime air keeps coasts wet, standing water and
 // wetlands stay humid, open plains are middling, deserts almost never.
 const TERRAIN_CHANCE = {
-  mountains: 90,   // orographic lift forces moist air up → frequent precip
+  mountains: 70,   // orographic lift forces moist air up → frequent precip
   coast: 85,       // maritime air, onshore moisture
   marshlands: 80,  // saturated ground, high local humidity
   quagmire: 80,
-  lakes: 75,       // large water body, lake-effect moisture
-  rivers: 75,
+  lakes: 60,       // large water body, lake-effect moisture
   darkforest: 70,  // dense canopy, damp microclimate
-  forest: 60,
+  forest: 50,
   hills: 55,       // mild orographic effect
-  plains: 45,      // open, average exposure
-  ruins: 45,       // treat as the surrounding open ground
+  plains: 40,      // open, average exposure
+  ruins: 40,       // treat as the surrounding open ground
   desert: 5,       // arid; rain is rare even under "risk"
 };
 const TERRAIN_TEMP = { mountains: -1 }; // RAW: Mountains −1 Temp (others 0)
+const WEATHER_LABEL = { sun: 'Sun / Moon / Stars', clouds: 'Cloudy', wind: 'Strong Winds', risk: 'Risk of Rain / Snow' };
 const TERRAIN_LABEL = {
-  mountains: 'Mountains (90%, −1 temp)',
+  mountains: 'Mountains (70%, −1 temp)',
   coast: 'Coast / Sea (85%)',
   marshlands: 'Marshlands (80%)',
   quagmire: 'Quagmire (80%)',
-  lakes: 'Lakes (75%)',
-  rivers: 'Rivers (75%)',
+  lakes: 'Lakes (60%)',
   darkforest: 'Dark Forest (70%)',
-  forest: 'Forest (60%)',
+  forest: 'Forest (50%)',
   hills: 'Hills (55%)',
-  plains: 'Plains (45%)',
-  ruins: 'Ruins (45%)',
+  plains: 'Plains (40%)',
+  ruins: 'Ruins (40%)',
   desert: 'Desert (5%)',
 };
 
@@ -93,6 +92,7 @@ const DEFAULT_STATE = {
   windActive: false,  // Strong Winds → a quarter-day re-roll is pending
   lastDayKey: null,
   lastQuarter: null,
+  lastSummary: null,  // previous roll's { label, notes, precip, fog } for carryover
 };
 
 // ----------------------------------------------------------
@@ -305,6 +305,7 @@ async function resolveWeather() {
   const effective = die + (state.rainRisk || 0);
   const prev = state.lastResult;
   const prevPrecip = state.precip; // did it actually rain/snow on the last roll?
+  const carry = state.lastSummary; // yesterday's result, still in effect today
 
   const notes = [];
   state.fog = false;
@@ -352,7 +353,13 @@ async function resolveWeather() {
     );
   }
 
-  await postWeatherCard(die, effective, result, temp, notes);
+  // Save this roll's summary so the NEXT roll can show it as "still in effect".
+  const fresh = getState(); // precip may have been updated by resolvePrecip
+  const summary = { label: WEATHER_LABEL[result], notes: [...notes], precip: fresh.precip, fog: fresh.fog };
+  fresh.lastSummary = summary;
+  await setState(fresh);
+
+  await postWeatherCard(die, effective, result, temp, notes, carry);
 }
 
 async function resolvePrecip(temp) {
@@ -396,26 +403,42 @@ function heatEffect(h) {
 // ----------------------------------------------------------
 // GM weather chat card
 // ----------------------------------------------------------
-async function postWeatherCard(die, effective, result, temp, notes) {
-  const labels = { sun: 'Sun / Moon / Stars', clouds: 'Cloudy', wind: 'Strong Winds', risk: 'Risk of Rain / Snow' };
-  const state = getState();
-
+// Renders the precip line, fog line, and notes for a result summary.
+function effectsBlockHTML({ precip, fog, notes } = {}) {
   let precipLine = '';
-  if (state.precip === 'rain') {
-    precipLine = '<p>🌧️ <strong>Rain</strong> — −1 Make Camp, +1 Forage Water. −1 heat if heat is positive (does not stack). Moisture-sensitive items exposed 15+ min risk item-dice damage.</p>';
-  } else if (state.precip === 'snow') {
-    precipLine = '<p>❄️ <strong>Snowfall</strong> — −1 to Lead the Way and Forced March.</p>';
+  if (precip === 'rain') {
+    precipLine = '<p style="margin:2px 0;">🌧️ <strong>Rain</strong> — −1 Make Camp, +1 Forage Water. −1 heat if heat is positive (does not stack). Moisture-sensitive items exposed 15+ min risk item-dice damage.</p>';
+  } else if (precip === 'snow') {
+    precipLine = '<p style="margin:2px 0;">❄️ <strong>Snowfall</strong> — −1 to Lead the Way and Forced March.</p>';
   }
-  const fogLine = state.fog ? '<p>🌫️ <strong>Fog</strong> (first light quarter-day) — −2 to Lead the Way.</p>' : '';
+  const fogLine = fog ? '<p style="margin:2px 0;">🌫️ <strong>Fog</strong> (first light quarter-day) — −2 to Lead the Way.</p>' : '';
+  const notesList = notes?.length ? `<ul style="margin:6px 0; padding-left:18px;">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>` : '';
+  return precipLine + fogLine + notesList;
+}
+
+async function postWeatherCard(die, effective, result, temp, notes, carry) {
+  const state = getState();
   const eff = effective !== die ? ` (+${effective - die} risk → ${effective})` : '';
+
+  const todayBlock = effectsBlockHTML({ precip: state.precip, fog: state.fog, notes });
+
+  // "Still in effect from yesterday" — the previous roll lingers a second day.
+  let carryBlock = '';
+  if (carry && carry.label) {
+    const inner = effectsBlockHTML(carry);
+    carryBlock = `
+      <hr style="margin:8px 0; opacity:.4;">
+      <p style="margin:2px 0; font-size:12px; opacity:.85;"><strong>Still in effect from yesterday — ${carry.label}:</strong></p>
+      ${inner || '<p style="margin:2px 0; font-size:12px; opacity:.7;">No lingering modifiers.</p>'}`;
+  }
 
   const content = `
     <div style="border:1px solid var(--color-border-dark, #555); border-radius:6px; padding:8px;">
-      <h3 style="margin:0 0 4px;">${labels[result]}</h3>
+      <h3 style="margin:0 0 4px;">${WEATHER_LABEL[result]}</h3>
       <p style="margin:2px 0;"><strong>Die:</strong> ${die}${eff} &nbsp;·&nbsp; <strong>Temp:</strong> ${temp} (${degrees(temp)})</p>
-      ${precipLine}${fogLine}
-      <ul style="margin:6px 0; padding-left:18px;">${notes.map((n) => `<li>${n}</li>`).join('')}</ul>
-      <p style="font-size:11px; opacity:.7; margin:2px 0 0;">Accumulated rain-risk: +${state.rainRisk}</p>
+      ${todayBlock}
+      ${carryBlock}
+      <p style="font-size:11px; opacity:.7; margin:6px 0 0;">Accumulated rain-risk: +${state.rainRisk}</p>
     </div>`;
 
   await ChatMessage.create({
