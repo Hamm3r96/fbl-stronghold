@@ -415,36 +415,11 @@ async function postWeatherCard(die, effective, result, temp, notes) {
 }
 
 // ----------------------------------------------------------
-// ITEM SHEET: Heat Modifier field (gear & armor)
-// ----------------------------------------------------------
-Hooks.on('renderItemSheet', (app, html) => {
-  const t = app.item?.type;
-  if (t !== 'gear' && t !== 'armor') return;
-
-  const heat = app.item.getFlag(MODULE_ID, 'heat') ?? 0;
-  const fieldHTML = `
-    <div class="form-group">
-      <label>Heat Modifier</label>
-      <div class="form-fields">
-        <input type="number" value="${heat}" class="hb-heat-input"/>
-      </div>
-    </div>`;
-
-  const body = html.find('.sheet-body');
-  if (body.length) body.prepend(fieldHTML);
-  else html.append(fieldHTML);
-
-  html.find('.hb-heat-input').off('change').on('change', async (ev) => {
-    await app.item.setFlag(MODULE_ID, 'heat', parseInt(ev.target.value) || 0);
-  });
-});
-
-// ----------------------------------------------------------
 // Heat breakdown (shared by the sheet line and the report)
 // ----------------------------------------------------------
 function sign(n) { return n >= 0 ? `+${n}` : `${n}`; }
 
-function computeHeatBreakdown(actor) {
+function computeHeatBreakdown() {
   const state = getState();
   const temp = state.temp ?? 0;
 
@@ -455,21 +430,10 @@ function computeHeatBreakdown(actor) {
   const mountainMod = TERRAIN_TEMP[terrainKey] ?? 0;
   const weatherMod = temp - seasonMod - mountainMod; // clouds-on-sun, etc.
 
-  // Plain sum of every heat-tagged item (stacking allowed, per design).
-  let gearHeat = 0;
-  const gearItems = [];
-  for (const it of actor.items) {
-    const h = it.getFlag(MODULE_ID, 'heat');
-    if (!h) continue;
-    gearHeat += h;
-    gearItems.push({ name: it.name, h });
-  }
-
-  return {
-    baseHeat: temp + gearHeat,
-    temp, gearHeat, gearItems,
-    seasonLabel, seasonMod, mountainMod, weatherMod, terrainKey,
-  };
+  // Heat baseline is environmental Temp only. Gear no longer contributes here:
+  // worn items already carry their own Endurance modifiers, which the system
+  // applies on the base roll, so counting them again would double up.
+  return { baseHeat: temp, temp, seasonLabel, seasonMod, mountainMod, weatherMod, terrainKey };
 }
 
 // ----------------------------------------------------------
@@ -479,29 +443,42 @@ Hooks.on('renderForbiddenLandsCharacterSheet', (app, html) => {
   const actor = app.actor;
   if (!actor) return;
 
-  const b = computeHeatBreakdown(actor);
+  const b = computeHeatBreakdown();
 
   const lineHTML = `
     <div class="hb-heat-line" style="display:flex; align-items:center; gap:8px; flex-wrap:wrap; padding:6px 8px; margin:8px 0; border:1px solid var(--color-border-dark, #555); border-radius:4px;">
-      <span><strong>Heat ${b.baseHeat}</strong> <small style="opacity:.7;">(Temp ${b.temp} + gear ${sign(b.gearHeat)})</small></span>
+      <span><strong>Heat ${b.baseHeat}</strong> <small style="opacity:.7;">(Temp, environmental)</small></span>
       <a class="hb-heat-check" title="Check heat / roll vs cold"><i class="fas fa-temperature-low"></i> Check</a>
       <span class="hb-heat-effect" style="flex-basis:100%; font-size:11px; opacity:.85;">${heatEffect(b.baseHeat)}</span>
     </div>`;
 
-  // Place at the BOTTOM of the Gear tab (under the "dropped" section).
-  const gearTab = html.find('.tab[data-tab="gear"]');
-  if (gearTab.length) gearTab.append(lineHTML);
-  else html.find('.tab').last().append(lineHTML); // fallback if tab name differs
+  // Find the Gear tab. FBL's data-tab value isn't guaranteed, so try the
+  // likely names; if none match, fall back to a guaranteed-visible spot and
+  // log the available tabs so the exact selector can be pinned.
+  const TAB_CANDIDATES = ['gear', 'inventory', 'equipment', 'items'];
+  let target = null;
+  for (const name of TAB_CANDIDATES) {
+    const t = html.find(`.tab[data-tab="${name}"]`);
+    if (t.length) { target = t; break; }
+  }
+  if (target) {
+    target.append(lineHTML);
+  } else {
+    const tabs = html.find('[data-tab]').map((i, e) => e.dataset.tab).get();
+    console.warn(`${MODULE_ID} | Gear tab not found. Available data-tab values:`, tabs);
+    (html.find('.sheet-body').first().length ? html.find('.sheet-body').first() : html).append(lineHTML);
+  }
 
   html.find('.hb-heat-check').off('click').on('click', () => openHeatDialog(actor));
 });
 
 function openHeatDialog(actor) {
-  const b = computeHeatBreakdown(actor);
+  const b = computeHeatBreakdown();
   new Dialog({
     title: 'Heat Check',
     content: `
-      <p>Base heat (Temp + gear): <strong>${b.baseHeat}</strong></p>
+      <p>Environmental heat (Temp): <strong>${b.baseHeat}</strong></p>
+      <p style="font-size:11px; opacity:.7; margin:-4px 0 6px;">Worn-gear bonuses apply automatically via the Endurance roll.</p>
       <div class="form-group"><label><input type="checkbox" name="soaked"/> Soaked wet (−2)</label></div>
       <div class="form-group"><label><input type="checkbox" name="bare"/> Bare minimum clothing (−1)</label></div>
       <div class="form-group"><label><input type="checkbox" name="fire"/> Campfire (+2)</label></div>
@@ -516,20 +493,21 @@ function openHeatDialog(actor) {
 }
 
 async function reportHeat(actor, html, doRoll) {
-  const b = computeHeatBreakdown(actor);
+  const b = computeHeatBreakdown();
 
   const soaked = html.find('[name="soaked"]').is(':checked');
   const bare = html.find('[name="bare"]').is(':checked');
   const fire = html.find('[name="fire"]').is(':checked');
   const tent = html.find('[name="tent"]').is(':checked'); // shelter only, 0 heat
 
-  const finalHeat = b.baseHeat + (soaked ? -2 : 0) + (bare ? -1 : 0) + (fire ? 2 : 0);
+  // Temp-side modifier only. Worn gear is handled by the items' own Endurance
+  // modifiers on the roll itself, so it is NOT added here.
+  const tempMod = b.temp + (soaked ? -2 : 0) + (bare ? -1 : 0) + (fire ? 2 : 0);
 
-  // ---- Build the human-readable reasons list ----
+  // ---- Reasons (environmental + conditions; gear shows on the roll) ----
   const reasons = [`${b.seasonLabel} (${sign(b.seasonMod)})`];
   if (b.mountainMod) reasons.push(`Mountains (${sign(b.mountainMod)})`);
   if (b.weatherMod) reasons.push(`Weather (${sign(b.weatherMod)})`);
-  for (const gi of b.gearItems) reasons.push(`${gi.name} (${sign(gi.h)})`);
   if (soaked) reasons.push('Soaked wet (−2)');
   if (bare) reasons.push('Bare minimum clothing (−1)');
   reasons.push(fire ? 'Campfire (+2)' : 'No campfire');
@@ -538,28 +516,44 @@ async function reportHeat(actor, html, doRoll) {
   await ChatMessage.create({
     speaker: ChatMessage.getSpeaker({ actor }),
     content: `<div style="border:1px solid var(--color-border-dark,#555); border-radius:6px; padding:8px;">
-        <h3 style="margin:0 0 4px;">Heat ${finalHeat}</h3>
-        <p style="margin:0 0 6px;">${heatEffect(finalHeat)}</p>
-        <p style="margin:0; font-size:11px; opacity:.8;"><strong>Why:</strong> ${reasons.join(', ')}.</p>
+        <h3 style="margin:0 0 4px;">Heat ${tempMod}</h3>
+        <p style="margin:0 0 6px;">${heatEffect(tempMod)}</p>
+        <p style="margin:0; font-size:11px; opacity:.8;"><strong>Why:</strong> ${reasons.join(', ')}. <em>Worn-gear bonuses apply on the roll.</em></p>
       </div>`,
   });
 
   if (doRoll) {
     const end = actor.skills?.endurance;
     const str = actor.system?.attribute?.strength;
-    if (end && game.fbl?.roll) {
-      // Standard Endurance roll: Strength (attribute) + Endurance (skill),
-      // with Heat folded into the skill dice as a modifier (like a +N).
-      // Real 'strength' name is used, so the phantom-attribute push bug
-      // (which came from fake attribute names) should not trigger.
-      const rollData = {
-        title: 'Endurance vs Cold',
-        attribute: { label: str?.label ?? 'Strength', name: 'strength', value: str?.value ?? 0 },
-        skill: { label: end.label, name: 'endurance', value: Math.max(0, (end.value ?? 0) + finalHeat) },
-      };
-      await game.fbl.roll(rollData, { maxPush: '1' });
-    } else {
+    if (!end || !game.fbl?.roll) {
       ui.notifications?.warn('Could not find the Endurance skill or game.fbl.roll.');
+      return;
     }
+
+    // Standard Endurance roll: Strength (attribute) + Endurance (skill).
+    const rollData = {
+      title: 'Endurance vs Cold',
+      attribute: { label: str?.label ?? 'Strength', name: 'strength', value: str?.value ?? 0 },
+      skill: { label: end.label, name: 'endurance', value: end.value ?? 0 },
+    };
+
+    // Pull the system's own roll options for Endurance so worn-item modifiers
+    // are included automatically (same mechanism the armour roll uses), then
+    // append the temperature/conditions as one extra modifier.
+    let rollOptions = { maxPush: '1' };
+    try {
+      const sheetOpts = actor.sheet?.getRollOptions?.('endurance');
+      if (sheetOpts) rollOptions = { ...rollOptions, ...sheetOpts };
+    } catch (e) {
+      console.warn(`${MODULE_ID} | getRollOptions('endurance') failed; rolling without sheet modifiers`, e);
+    }
+    if (tempMod !== 0) {
+      rollOptions.modifiers = [
+        ...(rollOptions.modifiers ?? []),
+        { name: 'Temperature & conditions', value: tempMod, active: true },
+      ];
+    }
+
+    await game.fbl.roll(rollData, rollOptions);
   }
 }
